@@ -33,7 +33,7 @@ local function tween(obj, time, style, dir, props)
 end
 
 -------------------------------------------------------------------------
--- ЗВУКОВОЙ ДВИЖОК (ИНЖЕКТ / ОТКРЫТИЕ / ЗАКРЫТИЕ / КЛИКИ)
+-- ЗВУКОВОЙ ДВИЖОК И ХИТСАУНД
 -------------------------------------------------------------------------
 local function PlayUISound(id, pitch, volume)
 	task.spawn(function()
@@ -48,11 +48,10 @@ local function PlayUISound(id, pitch, volume)
 	end)
 end
 
--- Красивый аккорд при инжекте скрипта
 PlayUISound(6895079853, 1.05, 0.65)
 
 -------------------------------------------------------------------------
--- ГЛОБАЛЬНАЯ КОНФИГУРАЦИЯ
+-- ГЛОБАЛЬНАЯ КОНФИГУРАЦИЯ (С ХИТСАУНДОМ)
 -------------------------------------------------------------------------
 local Config = {
 	Aimbot = {
@@ -80,6 +79,10 @@ local Config = {
 		Enabled = false,
 		Delay = 0.05
 	},
+	HitSound = {
+		Enabled = true,
+		SoundId = "rbxassetid://124823238881973"
+	},
 	ESP = {
 		Enabled = false,
 		Box = true,          BoxColor = Color3.fromRGB(255, 255, 255),
@@ -89,7 +92,7 @@ local Config = {
 		Ping = true,         PingColor = Color3.fromRGB(160, 220, 255),
 		Device = true,       DeviceColor = Color3.fromRGB(200, 160, 255),
 		Chams = false,       ChamsColor = Color3.fromRGB(165, 95, 255),
-		ChamsStyle = "ForceField" -- "ForceField" | "Solid" | "Glow" | "Lava" | "Ghost"
+		ChamsStyle = "ForceField"
 	},
 	Visuals = {
 		Bloom = false,       BloomIntensity = 1.8,
@@ -99,7 +102,7 @@ local Config = {
 		BulletTracer = false,TracerColor = Color3.fromRGB(255, 255, 255),
 		LocalChams = false,  LocalChamsColor = Color3.fromRGB(140, 90, 255),
 		LocalChamsStyle = "ForceField",
-		CustomModel = "None" -- "None" | "Cyber Mecha" | "Shadow Fiend" | "Angelic Core"
+		CustomModel = "None"
 	},
 	Rage = {
 		SelectedTarget = nil,
@@ -107,8 +110,8 @@ local Config = {
 		FlingPower = 18000,
 		Godmode = false,
 		AntiAim = false,
-		AntiAimYaw = "Spin",      -- "Spin" | "Jitter" | "Backwards" | "Random" | "Static"
-		AntiAimPitch = "Down",    -- "Down" | "Up" | "Zero" | "Jitter"
+		AntiAimYaw = "Spin",
+		AntiAimPitch = "Down",
 		AntiAimSpeed = 42,
 		AntiAimAngle = 140,
 		ColorKnife = false,       KnifeColor = Color3.fromRGB(255, 50, 80),
@@ -125,6 +128,23 @@ local Config = {
 		FPVDrone = false,         DroneSpeed = 68
 	}
 }
+
+-------------------------------------------------------------------------
+-- ФУНКЦИЯ ВОСПРОИЗВЕДЕНИЯ ХИТСАУНДА
+-------------------------------------------------------------------------
+local function PlayCustomHitSound()
+	if not Config.HitSound.Enabled then return end
+	task.spawn(function()
+		local s = Instance.new("Sound")
+		s.SoundId = Config.HitSound.SoundId
+		s.Volume = 1.0
+		s.PlaybackSpeed = 1.0
+		s.Parent = SoundService
+		s:Play()
+		s.Ended:Connect(function() s:Destroy() end)
+		task.delay(3, function() if s and s.Parent then s:Destroy() end end)
+	end)
+end
 
 -------------------------------------------------------------------------
 -- КАСТОМНЫЕ ВЕКТОРНЫЕ ИКОНКИ (SVG-СТИЛЬ)
@@ -438,7 +458,7 @@ local function RefreshEquippedSkins()
 end
 
 -------------------------------------------------------------------------
--- УТИЛИТА ЧАМСОВ (FORCEFIELD / SOLID / GLOW / LAVA / GHOST) ДЛЯ ИГРОКОВ И ВРАГОВ
+-- УТИЛИТА ЧАМСОВ ДЛЯ ИГРОКОВ И ВРАГОВ
 -------------------------------------------------------------------------
 local SavedOriginalMaterials = {}
 local ChamsHighlights = {}
@@ -545,9 +565,8 @@ local function ApplyChamsToCharacter(char, enabled, style, color, isPreviewDummy
 		hl.OutlineTransparency = (style == "Glow") and 0 or 0.25
 	end
 end
-
 -------------------------------------------------------------------------
--- УЛУЧШЕННЫЙ ЧЕРНО-БЕЛЫЙ ИНТЕРФЕЙС С ПЛАВНЫМИ АНИМАЦИЯМИ
+-- ИНТЕРФЕЙС И ГЕНЕРАТОРЫ КОНТРОЛОВ
 -------------------------------------------------------------------------
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "MonoSquat"
@@ -1374,6 +1393,11 @@ end
 SearchBox:GetPropertyChangedSignal("Text"):Connect(RenderSkinList)
 
 local CombatScroll = CreateScrollContainer(Pages.COMBAT, 0)
+AddSectionLabel(CombatScroll, "Audio & Hitsound")
+AddToggle(CombatScroll, "Enable Hit Sound", Config.HitSound.Enabled, function(v)
+	Config.HitSound.Enabled = v
+end)
+
 AddSectionLabel(CombatScroll, "Camera AimBot")
 AddToggle(CombatScroll, "Enable AimBot", Config.Aimbot.Enabled, function(v) Config.Aimbot.Enabled = v end)
 AddToggle(CombatScroll, "Always Active (No Key Hold)", Config.Aimbot.AlwaysActive, function(v) Config.Aimbot.AlwaysActive = v end)
@@ -2299,6 +2323,32 @@ if LocalPlayer.Character then
 	OnCharacterAdded(LocalPlayer.Character) 
 end
 LocalPlayer.CharacterAdded:Connect(OnCharacterAdded)
+
+-------------------------------------------------------------------------
+-- ОТСЛЕЖИВАНИЕ УРОНА ПО ВРАГАМ (ХИТСАУНД ЛОГИКА)
+-------------------------------------------------------------------------
+local function HookEnemyHealth(plr)
+	if plr == LocalPlayer then return end
+	local function onCharacter(char)
+		local hum = char:WaitForChild("Humanoid", 5)
+		if hum then
+			local lastHealth = hum.Health
+			hum:GetPropertyChangedSignal("Health"):Connect(function()
+				if hum.Health < lastHealth and hum.Health > 0 then
+					PlayCustomHitSound()
+				end
+				lastHealth = hum.Health
+			end)
+		end
+	end
+	if plr.Character then onCharacter(plr.Character) end
+	plr.CharacterAdded:Connect(onCharacter)
+end
+
+for _, p in ipairs(Players:GetPlayers()) do
+	HookEnemyHealth(p)
+end
+Players.PlayerAdded:Connect(HookEnemyHealth)
 
 local IsMenuOpen = true
 Watermark.MouseButton1Click:Connect(function()
